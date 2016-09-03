@@ -1,0 +1,201 @@
+---
+title: "Data Science Capstone - Milestone Report"
+author: "J. Orjuela-Koop"
+date: "August 31, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(tm)
+library(RWeka)
+library(ggplot2)
+```
+
+### Scope of this Report
+
+The goal of this report is to (1) summarize and present the fundamental features of a text corpus to be used in the development of a predictive text application, and (2) provide a brief description of the design plan for such application. In particular, we will focus on determining the frequency with which words and groups of words occur in the data set. This will inform our effort to create a probabilistic language model for a Shiny app where the user types a sentence fragment and the next word in the sentence is predicted.
+
+### Basic Description of the Data Set
+
+Our data set consists of three plain text files obtained by scraping web blogs, online news sources, and Twitter, respectively. The files are available here: https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
+
+```{r}
+  blog.text <- readLines("en_US.blogs.txt", skipNul = TRUE)
+  news.text <- readLines("en_US.news.txt", skipNul = TRUE)
+  twtr.text <- readLines("en_US.twitter.txt", skipNul = TRUE)
+```
+
+The following table shows the number of lines and total number of words in each file.
+
+```{r, echo = FALSE}
+  Files <- c("Blogs", "News", "Twitter")
+  Lines <- c(length(blog.text), length(news.text), length(twtr.text))
+  Words <- c(sum(vapply(strsplit(blog.text, "\\W+"), length, integer(1))),sum(vapply(strsplit(news.text, "\\W+"), length, integer(1))),sum(vapply(strsplit(twtr.text, "\\W+"), length, integer(1))))
+  
+  #, , sum(vapply(strsplit(twtr.text, "\\W+"), length, integer(1))))
+  
+  fileSummary <- data.frame(Files, Lines, Words)
+  #print(xtable(fileSummary), type="html")
+
+  #grid.table(fileSummary)
+  kable(fileSummary)
+```
+
+### Cleaning and Preparing the Data
+
+The following table shows a given from each text file. We can see that they contain punctuation, non-alphabetic characters, and non-uniform capitalization.
+
+```{r sample, echo=FALSE}
+sampleText <- c(blog.text[303], news.text[1], twtr.text[15])
+fileSample <- data.frame(Files, sampleText)
+colnames(fileSample) <- c("Files","Text Sample")
+kable(fileSample)
+
+# Get the first N lines of the files for exploratory analysis
+blog.text <- head(blog.text,800)
+news.text <- head(news.text,800)
+twtr.text <- head(twtr.text,800)
+
+ WordsSample <- c(sum(vapply(strsplit(blog.text, "\\W+"), length, integer(1))),sum(vapply(strsplit(news.text, "\\W+"), length, integer(1))),sum(vapply(strsplit(twtr.text, "\\W+"), length, integer(1))))
+ 
+ numWordsSample <- sum(WordsSample)
+```
+
+In order to carry out our exploratory analysis, we select a subset of the first 800 lines of each text file, which are otherwise very large. Then, we must clean the data set. We first create a corpus from the text files, and apply a series of transformations, namely:
+
+* Bring the text to UTF-8 encoding (hence removing foreign characters)
+* Remove punctuation
+* Remove numbers
+* Transform all letters to lowercase
+* Replace contractions with their full form (e.g., don't $\rightarrow$ do not)
+
+```{r clean}
+
+  corpus <- Corpus(VectorSource(paste(blog.text, news.text, twtr.text)))
+  corpus <- tm_map(corpus, content_transformer(function(x) iconv(x, to='UTF-8-MAC', sub='byte')), mc.cores=1) 
+  corpus <- tm_map(corpus, content_transformer(tolower), mc.cores=1)
+  
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("it's", "it is", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("i'm", "i am", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("isn't", "is not", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("can't", "cannot", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("won't", "will not", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("don't", "do not", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("didn't", "did not", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("wouldn't", "would not", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("couldn't", "could not", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("i've", "i have", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("we've", "we have", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("i'll", "i will", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("you'll", "you will", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("they'll", "they will", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("we'll", "we will", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("he's", "he is", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("she's", "she is", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("they're", "they are", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("we're", "we are", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("you're", "you are", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("y'all", "you all", x)))
+  
+  corpus <- tm_map(corpus, removePunctuation, mc.cores=1)
+  corpus <- tm_map(corpus, removeNumbers, mc.cores=1)
+  corpus <- tm_map(corpus, stripWhitespace, mc.cores=1)
+```
+
+We then use the *RWeka* and *tm* packages to identify all groups of 1, 2, and 3 words (i.e., unigrams, bigrams, and trigrams) occuring in the corpus.
+
+```{r, warning = FALSE}
+
+  # FUNCTION TO TOKENIZE BIGRAMS
+  BigramTokenizer <- function(x){
+  NGramTokenizer(x, Weka_control(min = 2, max = 2))  
+  }
+
+  # FUNCTION TO TOKENIZE TRIGRAMS
+  TrigramTokenizer <- function(x){
+  NGramTokenizer(x, Weka_control(min = 3, max = 3))  
+  }
+  
+  dtmUnigram <- DocumentTermMatrix(corpus)
+  dtmBigram  <- DocumentTermMatrix(corpus, control=list(tokenize = BigramTokenizer))
+  dtmTrigram <- DocumentTermMatrix(corpus, control=list(tokenize = TrigramTokenizer))
+```
+
+### Inspecting Word Frequency in the Corpus
+
+Having obtained data term matrices for various word combinations, we count the frequency with which these n-grams occur in the corpus.
+
+```{r, warning = FALSE}
+  # Create data frame indicating frequency of unigrams
+  unigramFreq <- sort(colSums(as.matrix(dtmUnigram)), decreasing = TRUE)
+  unigramFreq <- data.frame(word = names(unigramFreq), frequency = unigramFreq)
+  
+  # Create data frame indicating frequency of bigrams
+  bigramFreq <- sort(colSums(as.matrix(dtmBigram)), decreasing = TRUE)
+  bigramFreq <- data.frame(word = names(bigramFreq), frequency = bigramFreq)
+  
+  # Create data frame indicating frequency of trigrams
+  trigramFreq <- sort(colSums(as.matrix(dtmTrigram)), decreasing = TRUE)
+  trigramFreq <- data.frame(word = names(trigramFreq), frequency = trigramFreq)
+```
+
+The following plot shows the frequency distribution for the 50 most common words in the corpus sample. As expected, the most frequent words by far correspond to common articles, prepositions and conjunctions (e.g., *and*, *the*, *for*). It is important to notice that such words, which would normally be removed in other type of natural language processing analyses, are actually important for predictive text applications, where it is necessary to preserve the syntax of the training corpus.
+```{r, echo = FALSE}
+  unigramFreqSample <- unigramFreq[1:50,]
+
+  ggplot(unigramFreqSample,aes(x=unigramFreqSample$word, y=unigramFreqSample$frequency))+geom_bar(stat="identity")+labs(x = "Word",y="Frequency in Text Sample") + theme(axis.text.x = element_text(angle=45))
+```
+
+We now present the 50 most common bigrams in the figure below. As expected, they correspond to combinations of the most common words from the previous plot, with only a few words not appearing in the plot above. It is very interesting to notice that the vertical scale of absolute frequency drops by an order of magnitude relative to the frequency distribution of unigrams above.
+```{r, echo = FALSE}
+  bigramFreqSample <- bigramFreq[1:50,]
+
+  ggplot(bigramFreqSample,aes(x=bigramFreqSample$word, y=bigramFreqSample$frequency))+geom_bar(stat="identity")+labs(x = "Bigram",y="Frequency in Text Sample") + theme(axis.text.x = element_text(angle=45))
+```
+
+Finally, we present the 50 most common trigrams below. The most common trigrams are just combinations of the most common unigrams. Notice also that the characteristic frequency of these trigrams has dropped by a further order of magnitude relative to the bigrams.
+```{r, echo = FALSE}
+  trigramFreqSample <- trigramFreq[1:50,]
+
+  ggplot(trigramFreqSample,aes(x=trigramFreqSample$word, y=trigramFreqSample$frequency))+geom_bar(stat="identity")+labs(x = "Trigram",y="Frequency in Text Sample") + theme(axis.text.x = element_text(angle=45))
+```
+
+### How Big Should a Dictionary Be?
+
+Although helpful, the plots above only confirm our previous intuition of what the most common words are in the English language. However, since we want to predict text beyond the most common words in the language, we must address the question of how big of a dictionary is required for such purposes. If we pick too many words, the performance will suffer. On the other hand, too few words will result in a fast yet uninteresting application. 
+
+We define the coverage of a dictionary as the fraction of words in the corpus that appear in the dictionary. The plot below shows the coverage as a function of the number of most common words included in the dictionary. We see that the plot is highly non-linear. That is, a big increase in coverage is obtained when including the first few most common words, with more words after that making a smaller difference.
+
+```{r}
+
+dictSize <- 4000
+accumFreq <- vector(mode="numeric", dictSize)
+
+freqSum <- 0
+
+for(i in seq(dictSize))
+{
+  for(j in seq(i))
+  {
+    freqSum <- freqSum + unigramFreq[j,"frequency"]
+  }
+  
+  accumFreq[i] <- freqSum
+  freqSum <- 0
+}
+
+# Normalize to a probability 
+accumFreq <- accumFreq * (1.0 / numWordsSample)
+
+# Create data frame
+coverage <- data.frame(NumWords = seq(1:dictSize), Coverage = accumFreq)
+
+ggplot(coverage ,aes(x=coverage$NumWords, y=coverage$Coverage)) + geom_point()+labs(x = "Num. Words",y="Coverage")
+```
+
+### Plan for Text Prediction Algorithm
+We plan to construct an n-gram model of natural language using the text corpus described in the previous section. In this model, given a sequence of $k$ words $w_1 w_2\ldots w_k$, we will construct a probability distribution for the next word $w_{k+1}$ in the sequence. In order to estimate this probability, we make the assumption that the probability depends only on the previous two or three words in the sequence. In mathematical parlance, this constitutes a higher order Markov chain model, which can be represented by a matrix of probability values for various word combinations. 
+
+This matrix will encode the model and will be used in a predictive text web-based Shiny app. An advantage a matrix representation is that it constitutes a light-weight data structure compared to other possible representations of the same information. However, the two major challenges for implementing an efficient, quick application will be tuning the number of words in the model to achieve good coverage, and devising a scheme to deal with word combinations that were previously unseen, whose probability cannot be simply set to zero.
