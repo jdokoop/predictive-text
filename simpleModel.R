@@ -3,38 +3,45 @@
 # for predictive text applications
 # ----------------------------------------------
 
-# FUNCTION TO TOKENIZE BIGRAMS
-BigramTokenizer <- function(x){
-  NGramTokenizer(x, Weka_control(min = 2, max = 2))  
-}
-
-# FUNCTION TO TOKENIZE TRIGRAMS
-TrigramTokenizer <- function(x){
-  NGramTokenizer(x, Weka_control(min = 3, max = 3))  
-}
-
 # MAIN FUNCTION
 simpleModel <- function(){
   # Load required libraries
-  library(tm)
-  library(RWeka)
   library(ggplot2)
-  library(combinat)
-  library(gtools)
-  library(slam)
-  library(SnowballC)
+  library(NLP)
+  library(openNLP)
+  library(tm)
+  library(ngram)
+
+  blogText    <- readLines("en_US.blogs.txt", 100, skipNul = TRUE, encoding = 'UTF-8')
+  newsText    <- readLines("en_US.news.txt", 100, skipNul = TRUE, encoding = 'UTF-8')
+  twitterText <- readLines("en_US.twitter.txt", 100, skipNul = TRUE, encoding = 'UTF-8')
+
+  text        <- c(blogText, newsText, twitterText)
+  text        <- lapply(text, function(x) x <- String(x))
+
+  # Remove unnecessary objects
+  rm(blogText)
+  rm(newsText)
+  rm(twitterText)
   
-  # Create corpus from blog, news, and twitter sample in plain text file
-  blogText    <- readLines("en_US.blogs.txt", 200, skipNul = TRUE, encoding = 'UTF-8')
-  newsText    <- readLines("en_US.news.txt", 200, skipNul = TRUE, encoding = 'UTF-8')
-  twitterText <- readLines("en_US.twitter.txt", 200, skipNul = TRUE, encoding = 'UTF-8')
-  text        <- paste(blogText, newsText, twitterText)
-  corpus      <- Corpus(VectorSource(text))
+  # Break down text into individual sentences, not lines
+  tokenAnnotator <- Maxent_Sent_Token_Annotator()
+  annotatedText <- lapply(text, function(x) annotate(x, tokenAnnotator))
+
+  sentences <- vector(length = 0)
+  for(i in seq(length(text)))
+  {
+    sentences <- c(sentences, text[[i]][annotatedText[[i]]])
+  }
   
+  corpus <- Corpus(VectorSource(sentences))
+  
+  rm(sentences)
+
   # Process corpus
   corpus <- tm_map(corpus, content_transformer(function(x) iconv(x, to='UTF-8-MAC', sub='byte')), mc.cores=1) 
-  corpus <- tm_map(corpus, content_transformer(tolower), mc.cores=1)
-  
+  corpus <- tm_map(corpus, content_transformer(tolower))
+
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("it's", "it is", x)))
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("i'm", "i am", x)))
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("isn't", "is not", x)))
@@ -51,61 +58,70 @@ simpleModel <- function(){
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("they'll", "they will", x)))
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("we'll", "we will", x)))
   
-  corpus <- tm_map(corpus, removePunctuation, mc.cores=1)
-  corpus <- tm_map(corpus, removeNumbers, mc.cores=1)
-  corpus <- tm_map(corpus, stripWhitespace, mc.cores=1)
-  corpus <- tm_map(corpus, PlainTextDocument)   
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, removeNumbers)
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("[^[:alnum:] ]", "", x)))
+  corpus <- tm_map(corpus, content_transformer( function(x) gsub("^\\s+|\\s+$", "", x)))
+  corpus <- tm_map(corpus, stripWhitespace)
+  corpus <- tm_map(corpus, PlainTextDocument) 
   
-  # Create document term matrices for 1-, 2-, and 3-grams
-  dtmUnigram <- DocumentTermMatrix(corpus)
-  dtmBigram  <- DocumentTermMatrix(corpus, control=list(tokenize = BigramTokenizer))
-  dtmTrigram <- DocumentTermMatrix(corpus, control=list(tokenize = TrigramTokenizer))
- 
-  # Create data frame indicating frequency of unigrams
-  unigramFreq <- sort(colSums(as.matrix(dtmUnigram)), decreasing = TRUE)
-  unigramFreq <- data.frame(word = names(unigramFreq), frequency = unigramFreq)
+  # Get processed corpus as text
+  corpusText <- as.character(lapply(corpus, function(x) as.character(x)))
   
-  # Create data frame indicating frequency of bigrams
-  bigramFreq <- sort(colSums(as.matrix(dtmBigram)), decreasing = TRUE)
-  bigramFreq <- data.frame(word = names(bigramFreq), frequency = bigramFreq)
+  rm(corpus)
   
-  # Create data frame indicating frequency of trigrams
-  trigramFreq <- sort(colSums(as.matrix(dtmTrigram)), decreasing = TRUE)
-  trigramFreq <- data.frame(word = names(trigramFreq), frequency = trigramFreq)
+  # Remove sentences with less than three words
+  corpusText <- corpusText[lapply(corpusText,function(x) length(strsplit(x, " ", fixed = TRUE)[[1L]]))>2]
   
-  # Create dictionary from the most common unigrams
-  dictionary <- as.character(unigramFreq[1:10,]$word)
+  rm(corpusText)
   
-  # Select the most common trigrams
-  commonBigrams <- bigramFreq[1:10,]
+  # Construct n-grams
+  unigramList <- ngram(corpusText, n=1)
+  bigramList  <- ngram(corpusText, n=2)
+  trigramList <- ngram(corpusText, n=3)
   
-  # Create a second-order Markov chain transition matrix
-  # Each matrix entry corresponds to how many times the trigram 'model[i,j]' occurs in the corpus
-  model <- matrix(0, nrow = nrow(commonBigrams), ncol = length(dictionary))
-  rownames(model) <- commonBigrams$word
-  colnames(model) <- dictionary
-
-  for(i in seq(length(dictionary)))
+  # Construct tables of ngrams sorted by frequency
+  unigramFreq <- get.phrasetable(unigramList)
+  bigramFreq  <- get.phrasetable(bigramList)
+  trigramFreq <- get.phrasetable(trigramList)
+  
+  unigramFreq$ngrams <- sapply(unigramFreq$ngrams, trimws)
+  bigramFreq$ngrams <- sapply(bigramFreq$ngrams, trimws)
+  trigramFreq$ngrams <- sapply(trigramFreq$ngrams, trimws)
+  
+  # Get most common ngrams
+  unigramFreq <- unigramFreq[1:300,]
+  bigramFreq  <- bigramFreq[1:150,]
+  
+  # Create Markov transition matrix for bigrams -> trigrams
+  model <- matrix(0, nrow = nrow(bigramFreq), ncol = nrow(unigramFreq))
+  rownames(model) <- bigramFreq$ngrams
+  colnames(model) <- unigramFreq$ngrams
+  
+  for(i in seq(nrow(unigramFreq)))
   {
-    for(j in seq(nrow(commonBigrams)))
+    for(j in seq(nrow(bigramFreq)))
     {
       # Create candidate trigram by concatenating a bigram and a unigram
-      candidate <- paste(commonBigrams[j,]$word, dictionary[i])
+      candidate <- paste(bigramFreq[j,]$ngrams, unigramFreq[i,]$ngrams)
       
       # Determine if the candidate trigram actually exists in the corpus
       # If yes, determine its frequency and increase the counts in the model matrix
-      knownTrigram <- candidate %in% trigramFreq$word
+      knownTrigram <- candidate %in% trigramFreq$ngrams
       if(knownTrigram)
       {
-        model[j,i] <- model[j,i] + trigramFreq[candidate,]$frequency
+        model[j,i] <- model[j,i] + trigramFreq[trigramFreq$ngrams==candidate,]$freq
       }
     }
   }
-
-  # Normalize model so probabilities add up to 1 in every row
-  sums <- rowSums(model)
-  model <- model / sums
-  model[is.nan(model)] <- 0.0
+  
+  # The matrix is very sparse, so remove null rows and columns
+  model <- model[apply(model,1,sum) > 0,]
+  model <- model[,apply(model,2,sum) > 0]
+  
+  # Sort the rows alphabetically
+  model <- model[order(rownames(model)), ]
   
   model
+
 }
