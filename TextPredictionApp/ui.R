@@ -18,16 +18,17 @@ shinyUI(fluidPage(
   # Sidebar with a slider input for number of bins 
   sidebarLayout(
     sidebarPanel(
-      h5("Welcome to the text prediction application. Start by typing a sentence in the "),
-      
-       sliderInput("bins",
-                   "Number of bins:",
-                   min = 1,
-                   max = 50,
-                   value = 30),
+       h5("Start by typing a sentence in the box below. The prediction for the next word will appear below.
+         The graph on the right will show the top words most likely to complete your sentence."),
+       
+       h5(" "),
+    
        h5("Start Typing Here"),
+      
        textInput("inputSentence", NULL, value = "", width = 500),
+      
        h5("Did You Mean...?"),
+      
        textOutput("outputSentence", tags$textarea)
     ),
     
