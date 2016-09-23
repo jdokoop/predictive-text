@@ -15,17 +15,16 @@ model <- read.csv("myModelStepFinal.0.csv")
 # Function to predict next word in sentence fragment passed as argument
 predictNextWord <- function(s)
 {
-  print("Calling prediction function...")
-  print(s)
+  # The output list will contain (1) the prediction for the next word in the sequence
+  # and (2) all of the most likely candidate words in a data frame
+  outList <- list()
+  
   # Since this will be reactive, do nothing if user hasn't yet typed anything
   if(s == "")
   {
-    outList <- list()
     outList[[1]] <- ""
     return(outList)
   }
-  
-  print("Predicting for non-null sentence")
   
   # TODO: Apply same transformations to sentence as to training corpus
   
@@ -44,24 +43,27 @@ predictNextWord <- function(s)
   
   if(nrow(tetragramCandidates) > 0)
   {
-    topWord <- paste(s, tetragramCandidates[which.max(tetragramCandidates$cnt), "fourthWord"], sep = " ")
-    outList <- list()
+    topWord <- paste(s, tetragramCandidates[which.max(tetragramCandidates$cnt), c("fourthWord")], sep = " ")
     outList[[1]] <- topWord
-    #outList[[2]] <- tetragramCandidates[, "fourthWord"]
+    outList[[2]] <- tetragramCandidates[, c("fourthWord","cnt")]
+    outList[[2]] <- outList[[2]][order(-outList[[2]]$cnt), ]
+    colnames(outList[[2]]) <- c("word", "cnt")
     return(outList)      
   }
   else if(nrow(trigramCandidates) > 0)
   {
-    topWord <- paste(s, trigramCandidates[which.max(trigramCandidates$cnt), "thirdWord"], sep = " ")
-    outList <- list()
+    topWord <- paste(s, trigramCandidates[which.max(trigramCandidates$cnt), c("thirdWord")], sep = " ")
     outList[[1]] <- topWord
+    outList[[2]] <- trigramCandidates[, c("thirdWord","cnt")]
+    colnames(outList[[2]]) <- c("word", "cnt")
     return(outList)
   }
   else if(nrow(bigramCandidates) > 0)
   {
-    topWord <- paste(s, bigramCandidates[which.max(bigramCandidates$cnt), "secondWord"], sep = " ")
-    outList <- list()
+    topWord <- paste(s, bigramCandidates[which.max(bigramCandidates$cnt), c("secondWord")], sep = " ")
     outList[[1]] <- topWord
+    outList[[2]] <- bigramCandidates[, c("secondWord","cnt")]
+    colnames(outList[[2]]) <- c("word", "cnt")
     return(outList)
   }
   else
@@ -75,25 +77,20 @@ predictNextWord <- function(s)
 # Define server logic required to draw a histogram
 shinyServer(function(input, output) {
   
-  output$distPlot <- renderPlot({
-    
-    # generate bins based on input$bins from ui.R
-    x    <- faithful[, 2] 
-    bins <- seq(min(x), max(x), length.out = input$bins + 1)
-    
-    # draw the histogram with the specified number of bins
-    hist(x, breaks = bins, col = 'darkgray', border = 'white')
-    
-  })
-  
   # Run prediction function, which returns a list
   # The first item in the list is the prediction
   # The second item is a dataframe with the most likely words to complete the sentence
-
   getPrediction <- reactive({predictNextWord(input$inputSentence)})
   
+  # Use the first entry in the list to display the input sentence with the predicted next word
   output$outputSentence <- renderText({ 
     getPrediction()[[1]]
+  })
+  
+  # Use the second entry in the list to display a histogram of the most likely completions
+  output$distPlot <- renderPlot({
+    par(las=2)
+    barplot(getPrediction()[[2]][,2], names.arg = getPrediction()[[2]][,1], ylab="Probability")
   })
   
 })
