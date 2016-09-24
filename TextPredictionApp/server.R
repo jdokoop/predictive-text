@@ -1,12 +1,3 @@
-#
-# This is the server logic of a Shiny web application. You can run the 
-# application by clicking 'Run App' above.
-#
-# Find out more about building applications with Shiny here:
-# 
-#    http://shiny.rstudio.com/
-#
-
 library(shiny)
 library(tm)
 
@@ -36,12 +27,11 @@ predictNextWord <- function(s)
     return(outList)
   }
   
-  # Transform input sentence to lower case, remove punctuation, and apply other transformations
+  # Transform input sentence to lower case, remove punctuation, and apply other transformations to standardize the input
   corpus <- Corpus(VectorSource(s))
   
   corpus <- tm_map(corpus, content_transformer(function(x) iconv(x, to='UTF-8-MAC', sub='byte')), mc.cores=1) 
   corpus <- tm_map(corpus, content_transformer(tolower))
-  
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("it's", "it is", x)))
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("i'm", "i am", x)))
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("isn't", "is not", x)))
@@ -65,7 +55,6 @@ predictNextWord <- function(s)
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("she's", "she is", x)))
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("we're", "we are", x)))
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("they're", "they are", x)))
-  
   corpus <- tm_map(corpus, removePunctuation)
   corpus <- tm_map(corpus, removeNumbers)
   corpus <- tm_map(corpus, content_transformer( function(x) gsub("[^[:alnum:] ]", "", x)))
@@ -79,21 +68,28 @@ predictNextWord <- function(s)
   tokenizedSentence = strsplit(s, " ")[[1]]
   sentenceLength    = length(tokenizedSentence)
   
+  # Look for ngrams in the model which complete the sentence using a backoff scheme
   tetragramCandidates <- modelTetragrams[which(modelTetragrams$firstWord==tokenizedSentence[sentenceLength - 2] & modelTetragrams$secondWord==tokenizedSentence[sentenceLength - 1] & modelTetragrams$thirdWord==tokenizedSentence[sentenceLength]),]
   trigramCandidates   <- modelTrigrams[which(modelTrigrams$firstWord==tokenizedSentence[sentenceLength - 1] & modelTrigrams$secondWord==tokenizedSentence[sentenceLength] & modelTrigrams$thirdWord!="^"),]
   bigramCandidates    <- modelBigrams[which(modelBigrams$firstWord==tokenizedSentence[sentenceLength] & modelBigrams$secondWord!="^"),]
   
+  # Sort the resulting candidate completions by their likelihood
   tetragramCandidates <- tetragramCandidates[order(-tetragramCandidates$cnt), ]
   trigramCandidates   <- trigramCandidates[order(-trigramCandidates$cnt), ]
   bigramCandidates    <- bigramCandidates[order(-bigramCandidates$cnt), ]
   
+  # Construct an output list where the first entry is the word most likely to complete the sentence
+  # and the second entry is a data frame with the other likely words, to be displayed as a histogram
   if(nrow(tetragramCandidates) > 0 & sentenceLength > 2)
   {
     topWord <- paste(s, tetragramCandidates[which.max(tetragramCandidates$cnt), c("fourthWord")], sep = " ")
     outList[[1]] <- topWord
     outList[[2]] <- tetragramCandidates[, c("fourthWord","cnt")]
     outList[[2]] <- outList[[2]][1:10, ]
+    
+    #Normalize probability for the 10 most common completions 
     colnames(outList[[2]]) <- c("word", "cnt")
+    outList[[2]]$cnt <- outList[[2]]$cnt / sum(as.numeric(outList[[2]]$cnt), na.rm = TRUE)
     return(outList)      
   }
   else if(nrow(trigramCandidates) > 0 & sentenceLength > 1)
@@ -101,8 +97,11 @@ predictNextWord <- function(s)
     topWord <- paste(s, trigramCandidates[which.max(trigramCandidates$cnt), c("thirdWord")], sep = " ")
     outList[[1]] <- topWord
     outList[[2]] <- trigramCandidates[, c("thirdWord","cnt")]
+    
+    #Normalize probability for the 10 most common completions 
     outList[[2]] <- outList[[2]][1:10, ]
     colnames(outList[[2]]) <- c("word", "cnt")
+    outList[[2]]$cnt <- outList[[2]]$cnt / sum(as.numeric(outList[[2]]$cnt), na.rm = TRUE)
     return(outList)
   }
   else if(nrow(bigramCandidates) > 0)
@@ -110,8 +109,11 @@ predictNextWord <- function(s)
     topWord <- paste(s, bigramCandidates[which.max(bigramCandidates$cnt), c("secondWord")], sep = " ")
     outList[[1]] <- topWord
     outList[[2]] <- bigramCandidates[, c("secondWord","cnt")]
+    
+    #Normalize probability for the 10 most common completions 
     outList[[2]] <- outList[[2]][1:10, ]
     colnames(outList[[2]]) <- c("word", "cnt")
+    outList[[2]]$cnt <- outList[[2]]$cnt / sum(as.numeric(outList[[2]]$cnt), na.rm = TRUE)
     return(outList)
   }
   else
