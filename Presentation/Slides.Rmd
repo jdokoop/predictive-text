@@ -2,7 +2,7 @@
 title: "Buliding a Predictive Text Application"
 subtitle: "Data Science Capstone Project"
 author: "J. Orjuela-Koop"
-date: "September 24, 2016"
+date: "October 2016"
 output: ioslides_presentation
 ---
 
@@ -12,15 +12,20 @@ knitr::opts_chunk$set(echo = FALSE)
 
 ## The Goal
 
-This is an R Markdown presentation. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Our goal is to construct a model of natural language trained on a collection of text from online sources, and use it to develop a web application where:
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
+- The user types in a sentence fragment
+- The model predicts the next word in the sentence
+- The application outputs the complete sentence
+- The application presents a visualization of other candidate words likely to complete the sentence
+
+For an enhanced user experience, we want the application to be lightning fast, minimizing the time between sentence input and prediction output.
 
 ## Logic Behind the Application
 
-- Bullet 1
-- Bullet 2
-- Bullet 3
+- We use a large collection of text collected from the web to construct n-grams, with n = 2, 3, and 4
+- We then use these n-grams to calculate the conditional probability of a word occurring based on the previous 1, 2, or 3 words that precede it, as expressed by $P(w_{n}\mid w_{1}...w_{n-1}) \approx P(w_{n}\mid w_{1}...w_{k})$
+- We use a backoff scheme, where predictions based on 4-grams are given higher priority over those from lower order n-grams
 
 ## User Interface
 
@@ -30,7 +35,6 @@ knitr::include_graphics("Screenshot.png")
 
 ## Application Performance
 
-```{r pressure}
-plot(pressure)
-```
+First, let's consider the speed with which the model deploys when **first starting** the application. This is a critical issue to ensure a good user experience. Repeated measurements reveal an average time of 3.9 $\pm$ 0.1 seconds, which is deemed good enough for practical applications involving mobile devices.
 
+Then comes the question of how long it takes to predict the next word after the user has provided an input sentence. We find that, for input sentences consisting of just one word, the average response time is 90 $\pm$ 6 milliseconds. For longer sentences, the response time is 99 $\pm$ 4 milliseconds. In any case, these measurements are indicators of very fast performance.
