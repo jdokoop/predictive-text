@@ -43,6 +43,8 @@ removeProfanity <- function()
   fractionLost <- nrow(model) / nrowBefore
   print(paste("Removed", fractionLost, "% of the model"))
   
+  model <- model[,c(2,3,4,5,6)]
+
   # Save the model to file
   write.csv(model, file="myModelProfanityRemoved.csv")
 }
