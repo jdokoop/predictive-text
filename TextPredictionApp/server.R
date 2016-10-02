@@ -2,12 +2,13 @@ library(shiny)
 library(tm)
 
 # Load text prediction ngram model from csv file
-model <- read.csv("myModelStepFinal.0.csv")
+model <- read.csv("myModelProfanityRemoved.5.csv")
 
 # Separate the n-grams into different tables
-modelBigrams    <- model[which(model$thirdWord=='^' & model$fourthWord=='^'),]
-modelTrigrams   <- model[which(model$thirdWord!='^' & model$fourthWord=='^'),]
-modelTetragrams <- model[which(model$fourthWord!='^'),]
+modelBigrams    <- model[which(model$thirdWord == '^' & model$fourthWord == '^'),]
+modelTrigrams   <- model[which(model$thirdWord != '^' & model$fourthWord == '^'),]
+modelTetragrams <- model[which(model$fourthWord != '^' & model$fifthWord == '^'),]
+modelFivegrams  <- model[which(model$fifthWord != '^'),]
 
 # Function to predict next word in sentence fragment passed as argument
 predictNextWord <- function(s)
@@ -69,18 +70,33 @@ predictNextWord <- function(s)
   sentenceLength    = length(tokenizedSentence)
   
   # Look for ngrams in the model which complete the sentence using a backoff scheme
+  fivegramCandidates  <- modelFivegrams[which(modelFivegrams$fisrtWord==tokenizedSentence[sentenceLength - 3] & modelFivegrams$secondWord==tokenizedSentence[sentenceLength - 2] & modelFivegrams$thirdWord==tokenizedSentence[sentenceLength - 1] & modelFivegrams$fourthWord==tokenizedSentence[sentenceLength]),]
   tetragramCandidates <- modelTetragrams[which(modelTetragrams$firstWord==tokenizedSentence[sentenceLength - 2] & modelTetragrams$secondWord==tokenizedSentence[sentenceLength - 1] & modelTetragrams$thirdWord==tokenizedSentence[sentenceLength]),]
   trigramCandidates   <- modelTrigrams[which(modelTrigrams$firstWord==tokenizedSentence[sentenceLength - 1] & modelTrigrams$secondWord==tokenizedSentence[sentenceLength] & modelTrigrams$thirdWord!="^"),]
   bigramCandidates    <- modelBigrams[which(modelBigrams$firstWord==tokenizedSentence[sentenceLength] & modelBigrams$secondWord!="^"),]
   
   # Sort the resulting candidate completions by their likelihood
+  fivegramCandidates <- fivegramCandidates[order(-fivegramCandidates$cnt), ]
   tetragramCandidates <- tetragramCandidates[order(-tetragramCandidates$cnt), ]
   trigramCandidates   <- trigramCandidates[order(-trigramCandidates$cnt), ]
   bigramCandidates    <- bigramCandidates[order(-bigramCandidates$cnt), ]
   
   # Construct an output list where the first entry is the word most likely to complete the sentence
   # and the second entry is a data frame with the other likely words, to be displayed as a histogram
-  if(nrow(tetragramCandidates) > 0 & sentenceLength > 2)
+  if(nrow(fivegramCandidates) > 0 & sentenceLength > 3)
+  {
+    topWord <- paste(s, fivegramCandidates[which.max(fivegramCandidates$cnt), c("fifthWord")], sep = " ")
+    outList[[1]] <- topWord
+    outList[[2]] <- fivegramCandidates[, c("fifthWord","cnt")]
+    outList[[2]] <- outList[[2]][1:10, ]
+    
+    #Normalize probability for the 10 most common completions 
+    colnames(outList[[2]]) <- c("word", "cnt")
+    outList[[2]]$cnt <- outList[[2]]$cnt / sum(as.numeric(outList[[2]]$cnt), na.rm = TRUE)
+    
+    return(outList)      
+  }
+  else if(nrow(tetragramCandidates) > 0 & sentenceLength > 2)
   {
     topWord <- paste(s, tetragramCandidates[which.max(tetragramCandidates$cnt), c("fourthWord")], sep = " ")
     outList[[1]] <- topWord
@@ -90,6 +106,7 @@ predictNextWord <- function(s)
     #Normalize probability for the 10 most common completions 
     colnames(outList[[2]]) <- c("word", "cnt")
     outList[[2]]$cnt <- outList[[2]]$cnt / sum(as.numeric(outList[[2]]$cnt), na.rm = TRUE)
+
     return(outList)      
   }
   else if(nrow(trigramCandidates) > 0 & sentenceLength > 1)
@@ -102,6 +119,7 @@ predictNextWord <- function(s)
     outList[[2]] <- outList[[2]][1:10, ]
     colnames(outList[[2]]) <- c("word", "cnt")
     outList[[2]]$cnt <- outList[[2]]$cnt / sum(as.numeric(outList[[2]]$cnt), na.rm = TRUE)
+
     return(outList)
   }
   else if(nrow(bigramCandidates) > 0)
@@ -114,7 +132,9 @@ predictNextWord <- function(s)
     outList[[2]] <- outList[[2]][1:10, ]
     colnames(outList[[2]]) <- c("word", "cnt")
     outList[[2]]$cnt <- outList[[2]]$cnt / sum(as.numeric(outList[[2]]$cnt), na.rm = TRUE)
+
     return(outList)
+    
   }
   else
   {
@@ -124,6 +144,7 @@ predictNextWord <- function(s)
     outList <- list()
     outList[[1]] <- "NO PREDICTION POSSIBLE"
     outList[[2]] <- data.frame(word,cnt)
+
     return(outList)
   }
 }
