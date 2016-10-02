@@ -4,7 +4,7 @@
 # ----------------------------------------------
 
 # MAIN FUNCTION
-treeModel <- function(){
+simpleModel <- function(){
   # Load required libraries
   library(ggplot2)
   library(NLP)
@@ -89,14 +89,15 @@ treeModel <- function(){
     
     rm(corpus)
     
-    # Remove sentences with less than four words
-    corpusText <- corpusText[lapply(corpusText,function(x) length(strsplit(x, " ", fixed = TRUE)[[1L]]))>3]
+    # Remove sentences with less than five words
+    corpusText <- corpusText[lapply(corpusText,function(x) length(strsplit(x, " ", fixed = TRUE)[[1L]]))>4]
     
     # Construct n-grams
     unigramList   <- ngram(corpusText, n=1)
     bigramList    <- ngram(corpusText, n=2)
     trigramList   <- ngram(corpusText, n=3)
     tetragramList <- ngram(corpusText, n=4)
+    fivegramList  <- ngram(corpusText, n=5)
     
     print("Finished constructing ngrams")
     
@@ -106,6 +107,7 @@ treeModel <- function(){
     bigramFreq    <- get.phrasetable(bigramList)
     trigramFreq   <- get.phrasetable(trigramList)
     tetragramFreq <- get.phrasetable(tetragramList)
+    fivegramFreq <- get.phrasetable(fivegramList)
     
     # Get only ngrams with a frequency greater than some threshold
     #bigramFreq <- bigramFreq[which(bigramFreq$freq > 2),]
@@ -117,6 +119,7 @@ treeModel <- function(){
     bigramFreq$ngrams    <- sapply(bigramFreq$ngrams, trimws)
     trigramFreq$ngrams   <- sapply(trigramFreq$ngrams, trimws)
     tetragramFreq$ngrams <- sapply(tetragramFreq$ngrams, trimws)
+    fivegramFreq$ngrams <- sapply(fivegramFreq$ngrams, trimws)
     
     # Get number of ngrams to include in the final model
     #numBigrams <- ceiling(nrow(bigramFreq) * 0.5)
@@ -132,26 +135,36 @@ treeModel <- function(){
     secondWordBigrams  <- as.character(sapply(bigramFreq$ngrams, function(x) strsplit(x, " ")[[1]][2]))
     thirdWordBigrams   <- rep("^",nrow(bigramFreq))
     fourthWordBigrams  <- rep("^",nrow(bigramFreq))
+    fifthWordBigrams   <- rep("^",nrow(bigramFreq))
     
     firstWordTrigrams   <- as.character(sapply(trigramFreq$ngrams, function(x) strsplit(x, " ")[[1]][1]))
     secondWordTrigrams  <- as.character(sapply(trigramFreq$ngrams, function(x) strsplit(x, " ")[[1]][2]))
     thirdWordTrigrams   <- as.character(sapply(trigramFreq$ngrams, function(x) strsplit(x, " ")[[1]][3]))
     fourthWordTrigrams  <- rep("^",nrow(trigramFreq))
+    fifthWordTrigrams   <- rep("^",nrow(trigramFreq))
     
     firstWordTetragrams   <- as.character(sapply(tetragramFreq$ngrams, function(x) strsplit(x, " ")[[1]][1]))
     secondWordTetragrams  <- as.character(sapply(tetragramFreq$ngrams, function(x) strsplit(x, " ")[[1]][2]))
     thirdWordTetragrams   <- as.character(sapply(tetragramFreq$ngrams, function(x) strsplit(x, " ")[[1]][3]))
     fourthWordTetragrams  <- as.character(sapply(tetragramFreq$ngrams, function(x) strsplit(x, " ")[[1]][4]))
+    fifthWordTetragrams   <- rep("^",nrow(tetragramFreq))
     
-    firstWord  <- c(firstWordBigrams, firstWordTrigrams, firstWordTetragrams)
-    secondWord <- c(secondWordBigrams, secondWordTrigrams, secondWordTetragrams)
-    thirdWord  <- c(thirdWordBigrams, thirdWordTrigrams, thirdWordTetragrams)
-    fourthWord <- c(fourthWordBigrams, fourthWordTrigrams, fourthWordTetragrams)
-    cnt        <- c(bigramFreq$freq, trigramFreq$freq, tetragramFreq$freq)
+    firstWordFivegrams   <- as.character(sapply(fivegramFreq$ngrams, function(x) strsplit(x, " ")[[1]][1]))
+    secondWordFivegrams  <- as.character(sapply(fivegramFreq$ngrams, function(x) strsplit(x, " ")[[1]][2]))
+    thirdWordFivegrams   <- as.character(sapply(fivegramFreq$ngrams, function(x) strsplit(x, " ")[[1]][3]))
+    fourthWordFivegrams  <- as.character(sapply(fivegramFreq$ngrams, function(x) strsplit(x, " ")[[1]][4]))
+    fifthWordFivegrams   <- as.character(sapply(fivegramFreq$ngrams, function(x) strsplit(x, " ")[[1]][5]))
+    
+    firstWord  <- c(firstWordBigrams, firstWordTrigrams, firstWordTetragrams, firstWordFivegrams)
+    secondWord <- c(secondWordBigrams, secondWordTrigrams, secondWordTetragrams, secondWordFivegrams)
+    thirdWord  <- c(thirdWordBigrams, thirdWordTrigrams, thirdWordTetragrams, thirdWordFivegrams)
+    fourthWord <- c(fourthWordBigrams, fourthWordTrigrams, fourthWordTetragrams, fourthWordFivegrams)
+    fifthWord  <- c(fifthWordBigrams, fifthWordTrigrams, fifthWordTetragrams, fifthWordFivegrams)
+    cnt        <- c(bigramFreq$freq, trigramFreq$freq, tetragramFreq$freq, fivegramFreq$freq)
     
     # Construct tree from ngrams
-    splitNgrams <- data.frame(firstWord, secondWord, thirdWord, fourthWord, cnt)
-    write.csv(splitNgrams, file=sprintf("ModelFragments/myModel.%i.csv", fileNum)) 
+    splitNgrams <- data.frame(firstWord, secondWord, thirdWord, fourthWord, fifthWord, cnt)
+    write.csv(splitNgrams, file=sprintf("ModelFragments5g/myModel.%i.csv", fileNum)) 
   }
   
   for(i in seq(1:40))
